@@ -37,26 +37,25 @@ def sub(v1, v2):
 def rev(v):
 	return tuple(-a for a in v)
 
-# ベクトルの回転
-def rotate_l(dx, dy):
-	return dy, -dx
-
-def rotate_r(dx, dy):
-	return -dy, dx
-
 # 入力を平面ではなく、平面の裏側にそれぞれキューブが張り付いているものと考える。
 # それぞれのキューブは、平面上の(x, y)座標で区別出来る。以降、キューブと言った場合はこの(x, y)座標の事とする。
 # この状態から題意通りに折り畳むと、頂点は3つのキューブが重なった状態、それ以外の辺は2個のキューブが重なった状態になる。
 
-# 折り畳んだ後の各面の各辺について、その辺の(1x1x1立方体上の点の辺の始点, 終点): 
-# (始点キューブ, 終点キューブへの向きベクトル, 反転したかどうかのフラグ)、というdictを作りたい。
-# (一意にするため、立方体上の座標は、始点 < 終点になるよう記録。反転した場合はフラグを立てる)
+# 折り畳んだ大きさはs x s x sだけど、面倒くさいので折り畳みつつ縮小して、1x1x1に詰め込む事を考え、
+# 縦横高さ1の立方体の点の座標→その頂点を含むキューブのlist、というdictを作りたい。
+nodes = {}
+for x in (0, 1):
+	for y in (0, 1):
+		for z in (0, 1):
+			nodes[(x, y, z)] = []
+
+# 折り畳んだ後の各面の各辺について、その辺の(始点キューブ, 終点キューブ): その辺から出る方向を示す平面上のベクトル、というdictを作りたい。
 edges = {}
 
-# 最上段左端のキューブを基点にする。
+# 移動の初期キューブと同じ所を探索のスタートにする。
 y = 0
 for i in range(len(grid[0])):
-	if grid[0][i] != " ":
+	if grid[0][i] == ".":
 		x = i
 		break
 
@@ -74,38 +73,24 @@ while queue:
 #	print(x, y)
 	
 	# 現在の面の4隅のキューブのリスト
-	cube_ps = [(x, y), (x + s - 1, y), (x + s - 1, y + s - 1), (x, y + s - 1)]
+	vs = [(x, y), (x + s - 1, y), (x + s - 1, y + s - 1), (x, y + s - 1)]
 	
-	# 現在の面の4隅の立方体上の座標
-	axis_ps = [p, add(p, vx), add(p, vy, vx), add(p, vy)]
+	# 現在の面の4隅を、空間座標→キューブ、のdictに追加
+	nodes[p             ].append(vs[0])
+	nodes[add(p, vx)    ].append(vs[1])
+	nodes[add(p, vy, vx)].append(vs[2])
+	nodes[add(p, vy)    ].append(vs[3])
 	
-	# 立方体上の辺→キューブの端点, キューブ上の辺の向き
-	dx = 1
-	dy = 0
+	# 現在の面の4辺を、辺→その辺から出る方向のベクトル、のdictに追加
+	dx = 0
+	dy = -1
 	for i in range(4):
-		c1 = cube_ps[i]
-		c2 = cube_ps[(i + 1) % 4]
-		a1 = axis_ps[i]
-		a2 = axis_ps[(i + 1) % 4]
-		# 一意にするため、立方体上の座標が小さい方を先に。
-		if a1 > a2:
-			# 逆転させる場合は、座標を入れ替え、ベクトルを反転し、反転フラグを立てる
-			a1, a2 = a2, a1
-			c1, c2 = c2, c1
-			tdx = -dx
-			tdy = -dy
-			r = True
-		else:
-			tdx = dx
-			tdy = dy
-			r = False
-		at = (a1, a2)
-		ct = (c1, (tdx, tdy), r)
-		if at in edges:
-			edges[at].append(ct)
-		else:
-			edges[at] = [ct]
-		dx, dy = rotate_r(dx, dy)
+		v1 = vs[i]
+		v2 = vs[(i + 1) % 4]
+		edges[(v1, v2)] = (dx, dy)
+		edges[(v2, v1)] = (dx, dy)
+		# (dx, dy)を右90度回転
+		dx, dy = -dy, dx
 	
 	# 現在の面と、右左下上の面の繋がりを順に探索
 	for d, dx, dy in (("R", s, 0), ("L", -s, 0), ("D", 0, s), ("U", 0, -s)):
@@ -139,60 +124,97 @@ while queue:
 			visited.add((nx, ny))
 			queue.append((nx, ny, np, nvx, nvy, nvz))
 
+# ここまで正しければ、全ての座標上の点に3個ずつのキューブが登録されているはず
+for l in nodes.values():
+	if len(l) != 3:
+		raise Exception()
+
 #print(nodes)
 
 #print("e")
 #for x in edges.items():
 #	print(x)
 
+# キューブv1とキューブv2で結ばれた辺の間のキューブの座標のリスト(端点含む)を求める
+def points(v1, v2):
+	ret = []
+	x, y = v1
+	tx, ty = v2
+	while True:
+		ret.append((x, y))
+		if tx == x and ty == y:
+			break
+		elif x < tx:
+			x += 1
+		elif x > tx:
+			x -= 1
+		elif y < ty:
+			y += 1
+		elif y > ty:
+			y -= 1
+		else:
+			# 垂直が水平でない辺を求める事はあり得ないのでエラー
+			raise Exception
+	return ret
+
 # 今(x, y)に居て、(dx, dy)方向に移動しようとしている、というときに、その移動は面の境界を越えて(nx, ny)に移動し向きは(ndx, ndy)になる、
 # という場合に限って、その結びつきを、(x, y, dx, dy): ((nx, ny), (ndx, ndy))として記録しておくdictにする。
 warps = {}
 
-for ap, cp in edges.items():
-	# 各立方体の辺について、キューブ上の辺2本ずつが登録されているはず。
-	if len(cp) != 2:
-		raise Exception
+# warpに、キューブの辺e1→辺e2へワープできる、という情報を追加
+def add_warps(e1, e2):
+	# 移動元の辺、移動先の辺から出て行く場合のベクトルを取っておく
+	fdx, fdy = edges[e1]
+	tdx, tdy = edges[e2]
 	
-	# キューブ上の辺のデータ(始点, 終点座標へのベクトル, 反転したか)を取り出し。
-	(cp1, cd1, cr1), (cp2, cd2, cr2) = cp
+	# 辺上のキューブを列挙
+	fps = points(*e1)
+	tps = points(*e2)
 	
-	# 反転した場合は、その面へは、終点方向へ向かって右から入って左に出る。反転してない場合はその逆。
-	# それぞれ、out、inのベクトルとして向きを計算しておく
-	if cr1:
-		co1 = rotate_r(*cd1)
-		ci1 = rotate_l(*cd1)
-	else:
-		co1 = rotate_l(*cd1)
-		ci1 = rotate_r(*cd1)
-	if cr2:
-		co2 = rotate_r(*cd2)
-		ci2 = rotate_l(*cd2)
-	else:
-		co2 = rotate_l(*cd2)
-		ci2 = rotate_r(*cd2)
-#	print(cp)
-	
-	# 始点から終点へ順に各キューブ間のワープを登録
-	for i in range(s):
-#		print(cp1, cp2)
-		if (*cp1, *co1) in warps:
-			raise Exception
-		warps[(*cp1, *co1)] = (cp2, ci2)
-		if (*cp2, *co2) in warps:
-			raise Exception
-		warps[(*cp2, *co2)] = (cp1, ci1)
-		cp1 = add(cp1, cd1)
-		cp2 = add(cp2, cd2)
+	# 対応する各キューブ毎にワープを追加
+	for (fx, fy), (tx, ty) in zip(fps, tps):
+		# 移動元の辺から出て行くベクトル: 移動先の辺から出て行くベクトルの逆、を記録しておけば良い
+		warps[(fx, fy, fdx, fdy)] = ((tx, ty), (-tdx, -tdy))
 
-#for l in warps.items():
-#	print(l)
+
+# 1x1x1立方体上の全ての辺について実行。
+# まず、あらゆる異なる2点の組み合わせ全てをp1、p2として実行。
+keys = list(nodes.keys())
+for i in range(len(keys)):
+	p1 = keys[i]
+	for j in range(i + 1, len(keys)):
+		p2 = keys[j]
+		# p1とp2の距離が1なら辺(なんかもっと良い方法もありそうだけど手抜き)。
+		if sum(abs(a - b) for a, b in zip(p1, p2)) == 1:
+#			print(p1, p2)
+			# 辺になってる平面上の頂点の組み合わせを記録するためのリスト
+			es = []
+			# p1に位置するキューブ、p2に位置するキューブ、の組み合わせを全列挙。
+			for v1 in nodes[p1]:
+				for v2 in nodes[p2]:
+					# 2つのキューブの組みがedgesに含まれるなら、同じ面上のキューブの組で正しい辺。
+					# (そうでない場合は、上面のキューブと手前面のキューブ、とか異なる面上のキューブの組みになっているはず)
+					# (もっと正しい探索方法があるような気がする。辺から探索して対応する辺を探すとか?)
+					if (v1, v2) in edges:
+						es.append((v1, v2))
+			# 上手くいっていれば、1x1x1立方体上の各辺について、平面上の辺2個ずつがヒットしてるはず。
+			if len(es) == 2:
+				e1, e2 = es
+				# 2つの辺は互いに行き来できるのでワープを記録
+				add_warps(e1, e2)
+				add_warps(e2, e1)
+			else:
+				raise Exception
+
+
+for l in warps.items():
+	print(l)
 
 print(x, y)
 
 # (x, y)から、(dx, dy)だけ動くとどこへ行くかを返す。詰まってて移動出来ないときはNone
 def move(x, y, dx, dy):
-#	print((x, y), (dx, dy))
+	print((x, y), (dx, dy))
 	if (x, y, dx, dy) in warps:
 		# warpsのテーブルにある状況の時はワープする
 #		print("wf", (x, y))
@@ -201,14 +223,10 @@ def move(x, y, dx, dy):
 	elif dy == 0:
 		# それ以外は普通に移動
 		x += dx
-#		print("mx", (x, y))
 	else:
 		y += dy
-#		print("my", (x, y))
 	# ここまでの仕組み上、はみ出る場合は必ずwarpしてるので座標のチェックなどは不要
-	if grid[y][x] == " ":
-		raise Exception
-	elif grid[y][x] == "#":
+	if grid[y][x] == "#":
 		# 壁ならNone
 		return None
 	else:
@@ -270,9 +288,9 @@ while True:
 		t = moves[i]
 		# 左右回転。
 		if t == "L":
-			dx, dy = rotate_l(dx, dy)
+			dx, dy = dy, -dx
 		else:
-			dx, dy = rotate_r(dx, dy)
+			dx, dy = -dy, dx
 		# 続きがあれば続ける(必ず移動で終わるという仕様は見当たらなかったので念のため)
 		if i < len(moves):
 			i += 1
